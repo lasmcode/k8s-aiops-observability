@@ -1,15 +1,17 @@
 .PHONY: help cluster-up cluster-down monitoring-up monitoring-down \
-        apps-deploy collect detect test lint clean
+        collect detect test lint clean stop-nodes start-nodes
 
+# Variables
 CLUSTER_NAME := aiops-lab
-KUBECONFIG := $(HOME)/.kube/config
+KUBECONFIG   := $(HOME)/.kube/config
+NS_MON       := monitoring
 
-help:
+help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf " \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-cluster-up: ## Create the Kind cluster
-	kind create cluster --config k8s/cluster/kind-config.yaml
+cluster-up: ## Create the Kind cluster using the config file
+	kind create cluster --name $(CLUSTER_NAME) --config k8s/cluster/kind-config.yaml
 	kubectl cluster-info --context kind-$(CLUSTER_NAME)
 
 cluster-down: ## Destroy the Kind cluster
@@ -18,44 +20,35 @@ cluster-down: ## Destroy the Kind cluster
 monitoring-up: ## Install kube-prometheus-stack via Helm
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo update
-	kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack
-
---namespace monitoring
-
---values ​​k8s/monitoring/prometheus-values.yaml
-
---wait
+	kubectl create namespace $(NS_MON) --dry-run=client -o yaml | kubectl apply -f -
+	helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+		--namespace $(NS_MON) \
+		--values k8s/monitoring/prometheus-values.yaml \
+		--wait
 
 monitoring-down: ## Uninstall the monitoring stack
+	helm uninstall kube-prometheus-stack --namespace $(NS_MON)
+	kubectl delete namespace $(NS_MON)
 
-helm uninstall kube-prometheus-stack --namespace monitoring
+collect: ## Run the metrics collector using uv
+	uv run python src/collector/main.py
 
-collect: ## Run the metrics collector
+detect: ## Run the detection model using uv
+	uv run python src/detector/main.py
 
-uv run python src/collector/main.py
+test: ## Run the tests with coverage
+	uv run pytest --cov=src --cov-report=term-missing
 
-detect: ## Run the detection model
+lint: ## Check the code style with ruff
+	uv run ruff check src/ tests/
 
-uv run python src/detector/main.py
-
-test: ## Run the tests
-
-uv run pytest --cov=src --cov-report=term-missing
-
-lint: ## Check the code with ruff
-
-uv run ruff check src/tests/
-
-clean: ## Clean temporary artifacts
-
-find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; true
+clean: ## Clean temporary artifacts and python cache
+	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -name "*.pyc" -delete
-	rm -rf .pytest_cache htmlcov .coverage
+	rm -rf .pytest_cache .coverage htmlcov .ruff_cache
 
-stop-nodes: ## Stop cluster containers (pause)
-	docker stop aiops-lab-control-plane aiops-lab-worker aiops-lab-worker2
+stop-nodes: ## Pause the cluster containers
+	docker stop $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2
 
-start-nodes: ## Start previously stopped containers
-	docker start aiops-lab-control-plane aiops-lab-worker aiops-lab-worker2
+start-nodes: ## Resume the cluster containers
+	docker start $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2
