@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stress-worker
+  namespace: apps
+  labels:
+    app: stress-worker
+    tier: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stress-worker
+  template:
+    metadata:
+      labels:
+        app: stress-worker
+        tier: worker
+    spec:
+      containers:
+        - name: stress
+          image: polinux/stress
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
