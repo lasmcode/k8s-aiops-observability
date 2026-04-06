@@ -52,3 +52,18 @@ stop-nodes: ## Pause the cluster containers
 
 start-nodes: ## Resume the cluster containers
 	docker start $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2
+
+apps-deploy: ## Deploy sample applications to the apps namespace
+	kubectl apply -f k8s/manifests/namespace.yaml
+	kubectl apply -f k8s/manifests/web-frontend.yaml
+	kubectl apply -f k8s/manifests/api-service.yaml
+	kubectl apply -f k8s/manifests/stress-worker.yaml
+	kubectl rollout status deployment/web-frontend -n apps
+	kubectl rollout status deployment/api-service -n apps
+	kubectl rollout status deployment/stress-worker -n apps
+
+apps-status: ## Show the status of all applications in the apps namespace
+	kubectl get all -n apps -o wide
+
+apps-down: ## Delete the apps namespace and all its resources
+	kubectl delete namespace apps
