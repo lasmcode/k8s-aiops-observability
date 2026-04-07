@@ -1,0 +1,119 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aiops-slo-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    # -------------------------------------------------------
+    # SLI Recording Rules
+    # Precompute SLI metrics every 5 minutes
+    # -------------------------------------------------------
+    - name: sli.recording
+      interval: 5m
+      rules:
+        # SLI-01: HTTP error rate for api-service
+        # Ratio of non-5xx requests over total requests
+        - record: sli:http_availability:ratio_rate5m
+          expr: |
+            sum(rate(http_requests_total{
+              namespace="apps",
+              status!~"5.."
+            }[5m]))
+            /
+            sum(rate(http_requests_total{
+              namespace="apps"
+            }[5m]))
+
+        # SLI-02: HTTP latency p95 for api-service
+        # Fraction of requests faster than 500ms
+        - record: sli:http_latency_p95:ratio_rate5m
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{
+              namespace="apps",
+              le="0.5"
+            }[5m]))
+            /
+            sum(rate(http_request_duration_seconds_count{
+              namespace="apps"
+            }[5m]))
+
+        # SLI-03: Pod availability
+        # Ratio of ready pods over desired pods
+        - record: sli:pod_availability:ratio
+          expr: |
+            sum(kube_deployment_status_replicas_available{
+              namespace="apps"
+            })
+            /
+            sum(kube_deployment_spec_replicas{
+              namespace="apps"
+            })
+
+    # -------------------------------------------------------
+    # SLO Alerting Rules
+    # Fire when SLI burns through Error Budget too fast
+    # -------------------------------------------------------
+    - name: slo.alerting
+      rules:
+        # Alert: availability SLO breach (fast burn)
+        # Burns 2% of monthly budget in 1 hour = critical
+        - alert: AvailabilitySLOFastBurn
+          expr: |
+            sli:http_availability:ratio_rate5m < 0.98
+          for: 5m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "API availability SLO fast burn detected"
+            description: >
+              Availability is {{ $value | humanizePercentage }},
+              below the 99% SLO target. Fast burn in progress.
+
+        # Alert: latency SLO breach (slow burn)
+        - alert: LatencySLOBreach
+          expr: |
+            sli:http_latency_p95:ratio_rate5m < 0.95
+          for: 15m
+          labels:
+            severity: warning
+            slo: latency
+          annotations:
+            summary: "Latency SLO breach - p95 above 500ms"
+            description: >
+              Only {{ $value | humanizePercentage }} of requests
+              complete under 500ms. Target is 95%.
+
+        # Alert: pod availability SLO breach
+        - alert: PodAvailabilitySLOBreach
+          expr: |
+            sli:pod_availability:ratio < 0.995
+          for: 2m
+          labels:
+            severity: critical
+            slo: pod-availability
+          annotations:
+            summary: "Pod availability below 99.5% SLO"
+            description: >
+              Only {{ $value | humanizePercentage }} of desired
+              pods are available in namespace apps.
+
+    # -------------------------------------------------------
+    # Error Budget Recording Rules
+    # Remaining budget as a ratio (1 = full, 0 = exhausted)
+    # -------------------------------------------------------
+    - name: error.budget
+      interval: 5m
+      rules:
+        # Remaining availability error budget
+        - record: errorbudget:http_availability:remaining
+          expr: |
+            (sli:http_availability:ratio_rate5m - 0.99) / (1 - 0.99)
+
+        # Remaining latency error budget
+        - record: errorbudget:http_latency:remaining
+          expr: |
+            (sli:http_latency_p95:ratio_rate5m - 0.95) / (1 - 0.95)

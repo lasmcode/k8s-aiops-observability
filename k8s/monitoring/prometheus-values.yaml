@@ -1,0 +1,63 @@
+# kube-prometheus-stack Helm values
+# Professional configuration for local AIOps lab
+
+grafana:
+  enabled: true
+  admin:
+    existingSecret: "grafana-admin-credentials"
+    userKey: "admin-user"
+    passwordKey: "admin-password"
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: "browser"
+  persistence:
+    enabled: false
+  service:
+    type: ClusterIP
+  grafana.ini:
+    server:
+      root_url: "http://localhost:3000"
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: "8GB"
+    scrapeInterval: "15s"
+    evaluationInterval: "15s"
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # Watch all namespaces for ServiceMonitors
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+# Disable components not needed in Kind
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
