@@ -18,7 +18,7 @@ cluster-down: ## Destroy the Kind cluster
 	kind delete cluster --name $(CLUSTER_NAME)
 
 collect: ## Run the metrics collector using uv
-	uv run python src/collector/main.py
+	uv run python -m src.collector.main
 
 detect: ## Run the detection model using uv
 	uv run python src/detector/main.py
@@ -97,3 +97,15 @@ resume-lab: ## Resume containers and verify health
 	@echo "Verifying monitoring stack..."
 	@kubectl rollout status deployment/kube-prometheus-stack-operator -n $(NS_MON)
 	@echo "Lab is back. Note: Expect a 5-15 min gap in Prometheus charts."
+
+collect-normal: ## Collect 30 minutes of normal baseline metrics
+	uv run python -m src.collector.main --window 30 --label normal
+
+collect-anomaly: ## Collect metrics during anomaly injection
+	uv run python -m src.collector.main --window 5 --label anomaly
+
+inject-anomaly: ## Inject CPU and memory stress for 120 seconds
+	bash scripts/inject_anomaly.sh 120 2 256
+
+eda: ## Launch EDA notebook
+	uv run python -m notebook notebooks/01_eda.ipynb

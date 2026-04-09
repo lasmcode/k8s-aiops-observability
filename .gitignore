@@ -22,3 +22,9 @@ mlruns/
 *.swp
 .vscode/
 .idea/
+
+#data
+data/raw/*.csv
+data/processed/*.csv
+!**/raw/.gitkeep
+!**/processed/.gitkeep
