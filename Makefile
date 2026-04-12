@@ -109,3 +109,19 @@ inject-anomaly: ## Inject CPU and memory stress for 120 seconds
 
 eda: ## Launch EDA notebook
 	uv run python -m notebook notebooks/01_eda.ipynb
+
+mlflow-server: ## Start MLflow tracking server
+	uv run mlflow server \
+	  --host 127.0.0.1 \
+	  --port 5000 \
+	  --backend-store-uri sqlite:///mlruns.db \
+	  --default-artifact-root ./mlartifacts
+
+train: ## Train the Isolation Forest model
+	uv run python src/detector/trainer.py
+
+detect-realtime: ## Start real-time anomaly detector
+	uv run python src/detector/realtime.py --interval 30 --threshold 0.5
+
+evaluate: ## Launch model evaluation notebook
+	uv run jupyter notebook notebooks/02_model_evaluation.ipynb
