@@ -45,7 +45,7 @@ BOLD = "\033[1m"
 
 
 def load_model_and_scaler(
-    model_uri: str = "models:/k8s-anomaly-detector/latest",
+    model_uri: str = "models:/k8s-anomaly-detector@prod",
     scaler_path: str = "src/models/scaler.joblib",
 ):
     """Load trained model from MLflow registry and scaler from disk."""
@@ -111,7 +111,7 @@ def _compute_severity(score: float, threshold: float) -> str:
 def print_event(event: dict) -> None:
     """Pretty-print a detection event to the terminal."""
     severity = event["severity"]
-    pod = event["pod"].split("-")[0]  # Short pod name for readability
+    pod = event["pod"].split("-")[0]
 
     if severity == "critical":
         color = RED
@@ -119,6 +119,9 @@ def print_event(event: dict) -> None:
     elif severity == "warning":
         color = YELLOW
         icon = "[WARNING] "
+    elif severity == "pending":
+        color = YELLOW
+        icon = "[PENDING] "
     else:
         color = GREEN
         icon = "[OK]      "
@@ -133,24 +136,35 @@ def print_event(event: dict) -> None:
 
 def run(
     interval: int = 30,
-    threshold: float = 0.5,
+    threshold: float = 0.58,
     namespace: str = "apps",
     prometheus_url: str = "http://localhost:9090",
+    consecutive_alerts: int = 3,
 ) -> None:
-    """Main detection loop."""
+    """Main detection loop with consecutive alert filter.
+
+    A pod is only flagged as anomalous if it exceeds the threshold
+    in `consecutive_alerts` iterations in a row. Reduces noise from
+    transient CPU spikes in shared environments like Kind.
+    """
     model, scaler = load_model_and_scaler()
     client = PrometheusClient(base_url=prometheus_url)
     queries = build_queries(namespace)
 
+    # Track consecutive alert counts per pod
+    consecutive_counts: dict[str, int] = {}
+
     logger.info(
-        "Real-time detector started | interval=%ds | threshold=%.2f",
+        "Real-time detector started | interval=%ds | threshold=%.2f | consecutive=%d",
         interval,
         threshold,
+        consecutive_alerts,
     )
     print(f"\n{'=' * 60}")
     print("  K8s Anomaly Detector — Real-time mode")
     print(f"  Namespace: {namespace} | Interval: {interval}s")
-    print(f"  Threshold: {threshold} | Press Ctrl+C to stop")
+    print(f"  Threshold: {threshold} | Consecutive: {consecutive_alerts}")
+    print("  Press Ctrl+C to stop")
     print(f"{'=' * 60}\n")
 
     iteration = 0
@@ -160,7 +174,6 @@ def run(
         window_start = now - timedelta(minutes=5)
 
         try:
-            # Collect current metrics from Prometheus
             metric_dfs = {}
             for name, promql in queries.items():
                 raw = client.query_range(
@@ -171,11 +184,9 @@ def run(
                 )
                 metric_dfs[name] = parse_range_result(raw, name)
 
-            # Build feature matrix from latest window
             df = build_feature_matrix(metric_dfs)
             df = add_rolling_features(df)
 
-            # Use only the most recent observation per pod
             latest = df.sort_values("timestamp").groupby("pod").last()
             pod_names = latest.index.tolist()
 
@@ -187,10 +198,27 @@ def run(
                 time.sleep(interval)
                 continue
 
-            # Run detection
             events = detect_anomalies(model, scaler, X, pod_names, threshold)
 
-            # Print results
+            # Apply consecutive filter — only alert after N consecutive hits
+            confirmed_anomalies = []
+            for event in events:
+                pod = event["pod"]
+                if event["is_anomaly"]:
+                    consecutive_counts[pod] = consecutive_counts.get(pod, 0) + 1
+                else:
+                    consecutive_counts[pod] = 0
+
+                # Override severity if consecutive threshold not met
+                if (
+                    event["is_anomaly"]
+                    and consecutive_counts.get(pod, 0) < consecutive_alerts
+                ):
+                    event["severity"] = "pending"
+                    event["is_anomaly"] = False
+                elif event["is_anomaly"]:
+                    confirmed_anomalies.append(event)
+
             print(
                 f"\n[{now.strftime('%H:%M:%S')}] "
                 f"Iteration {iteration} — {len(events)} pods evaluated"
@@ -198,13 +226,11 @@ def run(
             for event in sorted(events, key=lambda e: e["anomaly_score"], reverse=True):
                 print_event(event)
 
-            # Summary
-            anomalies = [e for e in events if e["is_anomaly"]]
-            if anomalies:
+            if confirmed_anomalies:
                 logger.warning(
-                    "ANOMALIES DETECTED: %d pods | scores: %s",
-                    len(anomalies),
-                    [e["anomaly_score"] for e in anomalies],
+                    "CONFIRMED ANOMALIES: %d pods | scores: %s",
+                    len(confirmed_anomalies),
+                    [e["anomaly_score"] for e in confirmed_anomalies],
                 )
 
         except KeyboardInterrupt:
