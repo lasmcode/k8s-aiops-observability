@@ -28,3 +28,11 @@ data/raw/*.csv
 data/processed/*.csv
 !**/raw/.gitkeep
 !**/processed/.gitkeep
+
+# MLflow data and models
+mlartifacts/
+mlruns/
+mlruns.db
+
+# Generated feature lists
+src/models/features.txt

@@ -21,7 +21,7 @@ collect: ## Run the metrics collector using uv
 	uv run python -m src.collector.main
 
 detect: ## Run the detection model using uv
-	uv run python src/detector/main.py
+	uv run python -m src.detector.main
 
 test: ## Run the tests with coverage
 	uv run pytest --cov=src --cov-report=term-missing
@@ -109,3 +109,19 @@ inject-anomaly: ## Inject CPU and memory stress for 120 seconds
 
 eda: ## Launch EDA notebook
 	uv run python -m notebook notebooks/01_eda.ipynb
+
+mlflow-server: ## Start MLflow tracking server
+	uv run python -m mlflow server \
+	  --host 127.0.0.1 \
+	  --port 5000 \
+	  --backend-store-uri sqlite:///mlruns.db \
+	  --default-artifact-root ./mlartifacts
+
+train: ## Train the Isolation Forest model (usage: make train ARGS="--n-estimators 200")
+	uv run python -m src.detector.trainer $(ARGS)
+
+detect-realtime: ## Start real-time anomaly detector
+	uv run python -m src.detector.realtime --interval 30 --threshold 0.58
+
+evaluate: ## Launch model evaluation notebook
+	uv run jupyter notebook notebooks/02_model_evaluation.ipynb
