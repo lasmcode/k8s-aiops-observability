@@ -15,7 +15,7 @@ kubectl port-forward svc/kube-prometheus-stack-grafana \
 PID_GRAF=$!
 
 echo "Prometheus: http://localhost:9090"
-echo "Grafana:    http://localhost:3000 (admin / aiops-lab-2024)"
+echo "Grafana:    http://localhost:3000 (admin / aiops-lab)"
 echo ""
 echo "Press Ctrl+C to stop all port-forwards"
 

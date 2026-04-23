@@ -125,3 +125,24 @@ detect-realtime: ## Start real-time anomaly detector
 
 evaluate: ## Launch model evaluation notebook
 	uv run jupyter notebook notebooks/02_model_evaluation.ipynb
+
+import-dashboard: ## Import Grafana dashboard from JSON
+	@PROM_UID=$$(curl -s http://admin:admin@localhost:3000/api/datasources \
+	  | python -c "import sys,json; ds=[d for d in json.load(sys.stdin) \
+	  if 'prometheus' in d['name'].lower()]; print(ds[0]['uid'])") && \
+	sed -i "s/\"uid\": \"prometheus\"/\"uid\": \"$$PROM_UID\"/g" \
+	  k8s/monitoring/dashboards/aiops-main.json && \
+	curl -s -X POST \
+	  http://admin:admin@localhost:3000/api/dashboards/import \
+	  -H "Content-Type: application/json" \
+	  -d "{\"dashboard\": $$(cat k8s/monitoring/dashboards/aiops-main.json), \
+	       \"overwrite\": true, \"folderId\": 0}" | python -m json.tool
+
+demo: ## Run full end-to-end demo
+	bash scripts/demo.sh
+
+setup: ## Full environment setup from scratch
+	$(MAKE) cluster-up
+	$(MAKE) monitoring-up
+	$(MAKE) apps-deploy
+	@echo "Environment ready. Run: make collect-normal"
